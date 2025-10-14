@@ -1,0 +1,272 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>CAPTCHA Test UI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://rsms.me/inter/inter.css');
+        body { font-family: 'Inter', sans-serif; }
+        .tab-active { border-color: #3b82f6; color: #3b82f6; }
+        .img-grid-item {
+            position: relative;
+            cursor: pointer;
+            border-radius: 0.5rem;
+            overflow: hidden;
+            border: 4px solid transparent;
+            transition: border-color 0.2s;
+        }
+        .img-grid-item.selected {
+            border-color: #3b82f6;
+        }
+        .img-grid-item .checkmark {
+            display: none;
+            position: absolute;
+            top: 8px;
+            right: 8px;
+            width: 28px;
+            height: 28px;
+            background-color: #3b82f6;
+            color: white;
+            border-radius: 50%;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        }
+        .img-grid-item.selected .checkmark { display: flex; }
+        .img-grid-item img.loading { filter: blur(5px); }
+    </style>
+</head>
+<body class="bg-slate-100 flex items-center justify-center min-h-screen">
+
+    <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-lg">
+        
+        <h1 class="text-2xl font-bold text-center text-slate-800 mb-2">CAPTCHA Challenge</h1>
+        
+        <!-- TABS -->
+        <div class="mb-4 border-b border-gray-200">
+            <ul class="flex flex-wrap -mb-px text-sm font-medium text-center" id="tabs" role="tablist">
+                <li role="presentation"><button class="inline-block p-4 border-b-2 rounded-t-lg tab-active" id="math-tab" type="button">Mathematical</button></li>
+                <li role="presentation"><button class="inline-block p-4 border-b-2 rounded-t-lg" id="image-tab" type="button">Image Challenge</button></li>
+            </ul>
+        </div>
+        
+        <!-- CONTENT -->
+        <div>
+            <!-- Math CAPTCHA Content -->
+            <div id="math-content">
+                <p class="text-center text-slate-500 mb-6">Solve the equation below.</p>
+                <div id="math-captcha-container" class="bg-slate-200 rounded-lg h-24 flex items-center justify-center mb-4 text-3xl font-bold tracking-widest text-slate-700 select-none">
+                    <span id="math-captcha-text">Loading...</span>
+                    <img id="math-captcha-image" class="hidden rounded-lg" src="" alt="CAPTCHA Image"/>
+                </div>
+                <input type="number" id="math-answer" class="w-full px-4 py-2 border border-slate-300 rounded-lg focus:ring-2 focus:ring-blue-500" placeholder="Enter the result">
+            </div>
+
+            <!-- Image CAPTCHA Content -->
+            <div id="image-content" class="hidden">
+                <p id="image-prompt" class="text-center text-slate-500 mb-4 h-6">Loading...</p>
+                <div id="image-grid" class="grid grid-cols-3 gap-2 mb-4">
+                    <!-- Image grid items will be injected by JS -->
+                </div>
+            </div>
+        </div>
+
+        <!-- SHARED CONTROLS -->
+        <div class="flex items-center justify-between mt-6 mb-4">
+             <button id="submit-btn" class="w-full bg-blue-600 text-white font-bold py-2 px-4 rounded-lg hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500">Submit</button>
+            <button id="refresh-btn" class="ml-3 p-2 text-slate-500 hover:text-blue-600" title="Get a new challenge">
+                <svg xmlns="http://www.w3.org/2000/svg" class="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h5M20 20v-5h-5M20 4l-4 4M4 20l4-4M15 4h5v5M9 20H4v-5" /><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" transform="rotate(-45 12 12)"/></svg>
+            </button>
+        </div>
+        
+        <!-- Result Message -->
+        <div id="message-area" class="text-center h-5 text-sm font-medium"></div>
+    </div>
+
+    <script>
+        // --- State ---
+        let currentCaptchaId = null;
+        let currentMode = 'math'; // 'math' or 'image'
+        const API_BASE_URL = 'http://localhost:5000/captcha';
+
+        // --- DOM Elements ---
+        const mathTab = document.getElementById('math-tab');
+        const imageTab = document.getElementById('image-tab');
+        const mathContent = document.getElementById('math-content');
+        const imageContent = document.getElementById('image-content');
+        const submitBtn = document.getElementById('submit-btn');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const messageArea = document.getElementById('message-area');
+
+        // Math elements
+        const mathCaptchaText = document.getElementById('math-captcha-text');
+        const mathAnswerInput = document.getElementById('math-answer');
+
+        // Image elements
+        const imagePrompt = document.getElementById('image-prompt');
+        const imageGrid = document.getElementById('image-grid');
+
+        // --- Functions ---
+        const setMode = (mode) => {
+            currentMode = mode;
+            if (mode === 'math') {
+                mathTab.classList.add('tab-active');
+                imageTab.classList.remove('tab-active');
+                mathContent.classList.remove('hidden');
+                imageContent.classList.add('hidden');
+            } else {
+                imageTab.classList.add('tab-active');
+                mathTab.classList.remove('tab-active');
+                imageContent.classList.remove('hidden');
+                mathContent.classList.add('hidden');
+            }
+            fetchNewCaptcha();
+        };
+
+        const fetchNewCaptcha = () => {
+            messageArea.textContent = '';
+            submitBtn.disabled = true;
+
+            if (currentMode === 'math') fetchMathCaptcha();
+            else fetchImageCaptcha();
+        };
+
+        const fetchMathCaptcha = async () => {
+            mathCaptchaText.textContent = 'Loading...';
+            mathAnswerInput.value = '';
+            try {
+                const response = await fetch(`${API_BASE_URL}/generate-math`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}) });
+                if (!response.ok) throw new Error('Network response was not ok.');
+                const data = await response.json();
+                currentCaptchaId = data.captchaId;
+                mathCaptchaText.textContent = data.question;
+            } catch (error) {
+                handleError(error);
+            } finally {
+                submitBtn.disabled = false;
+            }
+        };
+
+        const fetchImageCaptcha = async () => {
+            imagePrompt.textContent = 'Loading challenge...';
+            imageGrid.innerHTML = Array(9).fill('<div class="w-full h-32 bg-slate-200 rounded-lg animate-pulse"></div>').join('');
+            try {
+                const response = await fetch(`${API_BASE_URL}/generate-image`, { method: 'POST' });
+                if (!response.ok) throw new Error('Network response was not ok.');
+                const data = await response.json();
+                currentCaptchaId = data.captchaId;
+                imagePrompt.textContent = data.prompt;
+                renderImageGrid(data.images);
+            } catch (error) {
+                handleError(error);
+            } finally {
+                submitBtn.disabled = false;
+            }
+        };
+
+        const renderImageGrid = (images) => {
+            imageGrid.innerHTML = '';
+            images.forEach((src, index) => {
+                const item = document.createElement('div');
+                item.className = 'img-grid-item';
+                item.dataset.index = index;
+
+                const img = document.createElement('img');
+                img.src = src;
+                img.alt = `Captcha Image ${index + 1}`;
+                img.className = 'w-full h-32 object-cover loading';
+                img.onload = () => img.classList.remove('loading');
+                
+                const checkmark = document.createElement('div');
+                checkmark.className = 'checkmark';
+                checkmark.innerHTML = '&#10003;'; // Checkmark symbol
+
+                item.appendChild(img);
+                item.appendChild(checkmark);
+                item.addEventListener('click', () => item.classList.toggle('selected'));
+                imageGrid.appendChild(item);
+            });
+        };
+
+        const handleSubmit = () => {
+            if (currentMode === 'math') validateMathCaptcha();
+            else validateImageCaptcha();
+        };
+
+        const validateMathCaptcha = async () => {
+            const answer = parseInt(mathAnswerInput.value, 10);
+            if (isNaN(answer)) {
+                showMessage('Please enter a valid number.', 'red');
+                return;
+            }
+            submitBtn.disabled = true;
+            try {
+                const response = await fetch(`${API_BASE_URL}/validate-math`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ captchaId: currentCaptchaId, answer })
+                });
+                const data = await response.json();
+                handleValidationResponse(data, response.ok);
+            } catch (error) {
+                handleError(error);
+            }
+        };
+
+        const validateImageCaptcha = async () => {
+            const selectedItems = imageGrid.querySelectorAll('.img-grid-item.selected');
+            const selectedIndices = Array.from(selectedItems).map(item => parseInt(item.dataset.index, 10));
+            
+            submitBtn.disabled = true;
+            try {
+                const response = await fetch(`${API_BASE_URL}/validate-image`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ captchaId: currentCaptchaId, selectedIndices })
+                });
+                const data = await response.json();
+                handleValidationResponse(data, response.ok);
+            } catch (error) {
+                handleError(error);
+            }
+        };
+
+        const handleValidationResponse = (data, isOk) => {
+            if (isOk && data.success) {
+                showMessage('✅ Success!', 'green');
+                setTimeout(fetchNewCaptcha, 1500);
+            } else {
+                showMessage(`❌ ${data.message || 'Incorrect.'}`, 'red');
+                submitBtn.disabled = false;
+            }
+        };
+
+        const handleError = (error) => {
+            console.error('API Error:', error);
+            showMessage('Service unavailable.', 'red');
+            submitBtn.disabled = false;
+        };
+
+        const showMessage = (text, color) => {
+            messageArea.textContent = text;
+            messageArea.className = `text-center h-5 text-sm font-medium text-${color}-600`;
+        };
+        
+        // --- Event Listeners ---
+        mathTab.addEventListener('click', () => setMode('math'));
+        imageTab.addEventListener('click', () => setMode('image'));
+        submitBtn.addEventListener('click', handleSubmit);
+        refreshBtn.addEventListener('click', fetchNewCaptcha);
+        mathAnswerInput.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') handleSubmit();
+        });
+
+        // --- Initial Load ---
+        setMode('math');
+
+    </script>
+</body>
+</html>
+
