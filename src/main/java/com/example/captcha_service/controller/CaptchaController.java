@@ -2,6 +2,7 @@ package com.example.captcha_service.controller;
 
 import com.example.captcha_service.model.CaptchaModels.*;
 import com.example.captcha_service.service.CaptchaService;
+import io.github.resilience4j.ratelimiter.annotation.RateLimiter;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
@@ -17,12 +18,10 @@ public class CaptchaController {
         this.captchaService = captchaService;
     }
 
-    // --- Endpoints for Mathematical CAPTCHA ---
     @PostMapping("/generate-math")
+    @RateLimiter(name = "captchaGenerate") // Apply the rate limiter
     public ResponseEntity<GenerateMathResponse> generateMath(@RequestBody(required = false) GenerateMathRequest request) {
-        if(request == null){
-            request = new GenerateMathRequest();
-        }
+        if(request == null) request = new GenerateMathRequest();
         return ResponseEntity.ok(captchaService.generateMathCaptcha(request));
     }
 
@@ -38,11 +37,13 @@ public class CaptchaController {
         return ResponseEntity.ok(response);
     }
 
-    // --- Endpoints for Image Challenge CAPTCHA ---
     @PostMapping("/generate-image")
+    @RateLimiter(name = "captchaGenerate") // Apply the same rate limiter
     public ResponseEntity<GenerateImageResponse> generateImage() {
         return ResponseEntity.ok(captchaService.generateImageCaptcha());
     }
+
+
 
     @PostMapping("/validate-image")
     public ResponseEntity<ValidateResponse> validateImage(@RequestBody ValidateImageRequest request) {
