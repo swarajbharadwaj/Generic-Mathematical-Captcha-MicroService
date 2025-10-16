@@ -9,7 +9,7 @@ import org.springframework.web.bind.annotation.*;
 
 @RestController
 @RequestMapping("/captcha")
-@CrossOrigin(origins = "*") 
+
 public class CaptchaController {
 
     private final CaptchaService captchaService;
