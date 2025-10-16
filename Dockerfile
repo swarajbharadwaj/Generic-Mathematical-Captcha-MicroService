@@ -11,6 +11,10 @@ COPY .mvn .mvn
 COPY pom.xml .
 COPY src src
 
+# --- FIX: Add execute permissions to the Maven wrapper script ---
+# This line solves the "exit code 126" error.
+RUN chmod +x ./mvnw
+
 # Build the application using Maven inside the container
 # This ensures the build is clean and not dependent on your local machine's setup.
 RUN ./mvnw install -DskipTests
@@ -31,3 +35,4 @@ EXPOSE 5000
 # The command that will run when the container starts
 # This launches the Java application.
 ENTRYPOINT ["java","-jar","app.jar"]
+
